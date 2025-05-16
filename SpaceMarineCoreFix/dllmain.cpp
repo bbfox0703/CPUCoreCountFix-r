@@ -1,11 +1,9 @@
-#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
 #include <detours.h>
-
 #include <string_view>
 
-// Detoured WINAPI methods for checking number of cores
 static constexpr DWORD MAX_SUPPORTED_CORES = 12;
 
 static void(WINAPI* RealGetSystemInfo)(LPSYSTEM_INFO lpSystemInfo) = GetSystemInfo;
@@ -16,18 +14,21 @@ void WINAPI GetSystemInfoDetour(LPSYSTEM_INFO info)
 {
 	RealGetSystemInfo(info);
 
-	//Space Marine will crash if greater than 12 cores
+	// Space Marine will crash if greater than 12 cores
 	if (info->dwNumberOfProcessors > MAX_SUPPORTED_CORES)
 		info->dwNumberOfProcessors = MAX_SUPPORTED_CORES;
 }
 
-// GetLogicalProcessorInformation is loaded dynamically trough GetProcAddress GetProcAddress however this is added for consistency
 BOOL WINAPI GetLogicalProcessorInformationDetour(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION Buffer, PDWORD ReturnedLength)
 {
 	const auto result = RealGetLogicalProcessorInformation(Buffer, ReturnedLength);
-	if (result == TRUE && *ReturnedLength > MAX_SUPPORTED_CORES)
+	if (result == TRUE)
 	{
-		*ReturnedLength = MAX_SUPPORTED_CORES;
+		DWORD entrySize = sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
+		DWORD maxLength = entrySize * MAX_SUPPORTED_CORES;
+
+		if (*ReturnedLength > maxLength)
+			*ReturnedLength = maxLength;
 	}
 	return result;
 }
@@ -36,115 +37,118 @@ FARPROC WINAPI GetProcAddressDetour(HMODULE hModule, LPCSTR lpProcName)
 {
 	using namespace std::literals;
 
-	// Primitive check if one of our interesting functions is being dynamically loaded from dll
+	// Check if one of our detoured functions is being requested dynamically
 	if ("GetSystemInfo"sv == lpProcName)
-	{
 		return reinterpret_cast<FARPROC>(&GetSystemInfoDetour);
-	}
 	else if ("GetLogicalProcessorInformation"sv == lpProcName)
-	{
 		return reinterpret_cast<FARPROC>(&GetLogicalProcessorInformationDetour);
-	}
 	else
-	{
 		return RealGetProcAddress(hModule, lpProcName);
-	}
 }
 
-// Detour initialization
-BOOL Init(HINSTANCE hModule)
-{
-	DisableThreadLibraryCalls(hModule);
-
-	DetourTransactionBegin();
-	DetourUpdateThread(GetCurrentThread());
-	DetourAttach(&RealGetSystemInfo, &GetSystemInfoDetour);
-	DetourAttach(&RealGetLogicalProcessorInformation, &GetLogicalProcessorInformationDetour);
-	DetourTransactionCommit();
-
-	return TRUE;
-}
-
-BOOL APIENTRY DllMain(HMODULE hModule,
-	DWORD  ul_reason_for_call,
-	LPVOID
-)
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
-		return Init(hModule);
-	case DLL_THREAD_ATTACH:
-	case DLL_THREAD_DETACH:
-	case DLL_PROCESS_DETACH:
-		break;
-	}
-	return TRUE;
-}
-
-// Export function to impersonate DirectInput8 library
-// Original library paths, it will break in case of non standard windows install
+// Export function to impersonate DirectInput8.dll
 #ifdef _WIN64
 #define ORIGINAL_DLL_PATH_64BIT_SYSTEM "C:\\Windows\\System32\\DINPUT8.dll"
-#else //_WIN64
+#else
 #define ORIGINAL_DLL_PATH_64BIT_SYSTEM "C:\\Windows\\SysWOW64\\DINPUT8.dll"
 #define ORIGINAL_DLL_PATH_32BIT_SYSTEM "C:\\Windows\\System32\\DINPUT8.dll"
 
 static BOOL Is64BitOS()
 {
 	using IsWow64ProcessFunctionType = BOOL(WINAPI*)(HANDLE, PBOOL);
-
-	const auto isWow64Process = reinterpret_cast<IsWow64ProcessFunctionType>(RealGetProcAddress(
-		GetModuleHandle(TEXT("kernel32")), "IsWow64Process"));
+	const auto isWow64Process = reinterpret_cast<IsWow64ProcessFunctionType>(
+		RealGetProcAddress(GetModuleHandle(TEXT("kernel32")), "IsWow64Process"));
 
 	BOOL is64Bit = FALSE;
 	if (isWow64Process != NULL)
-	{
-		if (!isWow64Process(GetCurrentProcess(), &is64Bit))
-		{
-			// Ignore error, it will be propagated later
-		}
-	}
+		isWow64Process(GetCurrentProcess(), &is64Bit);
+
 	return is64Bit;
 }
 
 static const BOOL IS_64BIT_OS = Is64BitOS();
-#endif //_WIN64
+#endif
 
 #include "Unknwn.h"
 
 using DirectInput8CreateFunctionType = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
 
+static HMODULE moduleHandle = NULL;
+
 extern "C" HRESULT WINAPI DirectInput8Create(HINSTANCE hinst,
 	DWORD dwVersion,
 	REFIID riidltf,
-	LPVOID * ppvOut,
+	LPVOID* ppvOut,
 	LPUNKNOWN punkOuter)
 {
-	// Load original DINPUT8.dll and then call DirectInput8Create from it
-	static HMODULE moduleHandle = LoadLibrary(
-#ifdef _WIN64
-		TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM)
-#else //_WIN64
-		IS_64BIT_OS ? TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM) : TEXT(ORIGINAL_DLL_PATH_32BIT_SYSTEM)
-#endif //_WIN64
-	);
-
-	if (moduleHandle == NULL)
+	if (!moduleHandle)
 	{
-		if (moduleHandle == NULL)
-		{
-			RaiseException(EXCEPTION_INVALID_HANDLE, EXCEPTION_NONCONTINUABLE, 0, NULL);
-			return E_INVALIDARG;
-		}
+		moduleHandle = LoadLibrary(
+#ifdef _WIN64
+			TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM)
+#else
+			IS_64BIT_OS ? TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM) : TEXT(ORIGINAL_DLL_PATH_32BIT_SYSTEM)
+#endif
+		);
 	}
 
-	const auto directInput8Create = reinterpret_cast<DirectInput8CreateFunctionType>(RealGetProcAddress(moduleHandle, "DirectInput8Create"));
-	if (directInput8Create == NULL)
+	if (!moduleHandle)
 	{
-		RaiseException(EXCEPTION_INVALID_HANDLE, EXCEPTION_NONCONTINUABLE, 0, NULL);
-		return E_INVALIDARG;
+		SetLastError(ERROR_DLL_NOT_FOUND);
+		return E_FAIL;
+	}
+
+	const auto directInput8Create = reinterpret_cast<DirectInput8CreateFunctionType>(
+		RealGetProcAddress(moduleHandle, "DirectInput8Create"));
+
+	if (!directInput8Create)
+	{
+		SetLastError(ERROR_PROC_NOT_FOUND);
+		return E_FAIL;
 	}
 
 	return directInput8Create(hinst, dwVersion, riidltf, ppvOut, punkOuter);
+}
+
+BOOL Init(HINSTANCE hModule)
+{
+	DisableThreadLibraryCalls(hModule);
+
+	DetourTransactionBegin();
+	DetourUpdateThread(GetCurrentThread());
+	DetourAttach(&(PVOID&)RealGetSystemInfo, GetSystemInfoDetour);
+	DetourAttach(&(PVOID&)RealGetLogicalProcessorInformation, GetLogicalProcessorInformationDetour);
+	DetourAttach(&(PVOID&)RealGetProcAddress, GetProcAddressDetour);
+	return DetourTransactionCommit() == NO_ERROR;
+}
+
+void Cleanup()
+{
+	DetourTransactionBegin();
+	DetourUpdateThread(GetCurrentThread());
+	DetourDetach(&(PVOID&)RealGetSystemInfo, GetSystemInfoDetour);
+	DetourDetach(&(PVOID&)RealGetLogicalProcessorInformation, GetLogicalProcessorInformationDetour);
+	DetourDetach(&(PVOID&)RealGetProcAddress, GetProcAddressDetour);
+	DetourTransactionCommit();
+
+	if (moduleHandle)
+	{
+		FreeLibrary(moduleHandle);
+		moduleHandle = NULL;
+	}
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule,
+	DWORD ul_reason_for_call,
+	LPVOID)
+{
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH:
+		return Init(hModule);
+	case DLL_PROCESS_DETACH:
+		Cleanup();
+		break;
+	}
+	return TRUE;
 }
