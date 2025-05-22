@@ -4,8 +4,17 @@ fork of https://github.com/alexstrout/CPUCoreCountFix
 
 此為針對 [`alexstrout/CPUCoreCountFix`](https://github.com/alexstrout/CPUCoreCountFix) 的改良版本，功能是一樣的。
   
-主要是針對舊遊戲、如「刀劍神域-虛空幻界-」會因CPU大於或是等於32核 (例如16C32T的9950X3D、9955HX3D等CPU) 造成無法執行、啟動失敗，以「刀劍神域-虛空幻界-」來說，將x64版本的dinput8.dll放在遊戲執行檔目錄即可。  
-要注意的是Windows要裝在預設位置 C:\Windows、因為在DLL中是寫死的。 
+主要是針對舊遊戲、如「刀劍神域-虛空幻界-」會因CPU大於或是等於32邏輯核心數 (例如16C32T的5950X、9950X3D、9955HX3D等CPU) 造成無法執行、啟動失敗，以「刀劍神域-虛空幻界-」來說，將x64版本的dinput8.dll放在遊戲執行檔目錄即可。  
+要注意的是Windows要裝在預設位置 C:\Windows、因為在DLL中是寫死的。此DLL會回報邏輯核心數為12。 
+  
+其它遊戲也有限制例如：  
+Far Cry 2：31 threads  
+Far Cry 3：29 threads  
+Far Cry 4：31 threads  
+Warhammer 40,000: Space Marine：26 threads  
+The Witcher 2: Assassins of Kings Enchanced Edition：31 threads  
+Child of Light：16 threads  
+  
 
 ---
 
