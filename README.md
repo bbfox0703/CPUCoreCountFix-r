@@ -11,8 +11,8 @@ fork of https://github.com/alexstrout/CPUCoreCountFix
 Far Cry 2：31 threads  
 Far Cry 3：29 threads  
 Far Cry 4：31 threads  
-Warhammer 40,000: Space Marine：26 threads  
-The Witcher 2: Assassins of Kings Enchanced Edition：31 threads  
+Warhammer 40,000: Space Marine：26 threads
+The Witcher 2: Assassins of Kings Enhanced Edition：31 threads
 Child of Light：16 threads  
   
 
