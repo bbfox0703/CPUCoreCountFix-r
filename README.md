@@ -4,8 +4,8 @@ fork of https://github.com/alexstrout/CPUCoreCountFix
 
 此為針對 [`alexstrout/CPUCoreCountFix`](https://github.com/alexstrout/CPUCoreCountFix) 的改良版本，功能是一樣的。
   
-主要是針對舊遊戲、如「刀劍神域-虛空幻界-」會因CPU大於或是等於32邏輯核心數 (例如16C32T的5950X、9950X3D、9955HX3D等CPU) 造成無法執行、啟動失敗，以「刀劍神域-虛空幻界-」來說，將x64版本的dinput8.dll放在遊戲執行檔目錄即可。  
-要注意的是Windows要裝在預設位置 C:\Windows、因為在DLL中是寫死的。此DLL會回報邏輯核心數為12。 
+主要是針對舊遊戲、如「刀劍神域-虛空幻界-」會因CPU大於或是等於32邏輯核心數 (例如16C32T的5950X、9950X3D、9955HX3D等CPU) 造成無法執行、啟動失敗，以「刀劍神域-虛空幻界-」來說，將x64版本的dinput8.dll放在遊戲執行檔目錄即可。
+此DLL會自動偵測系統目錄並回報邏輯核心數為12。
   
 其它遊戲也有限制例如：  
 Far Cry 2：31 threads  
@@ -30,8 +30,20 @@ Child of Light：16 threads
 
 ---
 
+### 📦 建置說明
+
+本專案使用 [Microsoft Detours](https://github.com/microsoft/Detours) 作為外部依賴，需手動 clone 到指定目錄：
+
+```bash
+git clone https://github.com/microsoft/Detours.git External/Detours
+```
+
+然後使用 Visual Studio 開啟 `SpaceMarineCoreFix.sln` 進行建置。
+
+---
+
 ### 📌 兼容性說明
 
 * 本 DLL 預期用於取代 `dinput8.dll`，並呼叫原DLL，以修正多核心 CPU 對某些舊遊戲（如 Sword Art Online: Hollow Realization Deluxe Edition / 刀劍神域-虛空幻界- 豪華版 ）造成的無法啟動問題。
-* 若你的系統為非標準 Windows 安裝路徑，請手動修正 `LoadLibrary` 中的 `DINPUT8.dll` 絕對路徑。自行Compile一份。
+* DLL 會透過 `GetSystemDirectory` 自動偵測系統目錄，不再限定 Windows 安裝於 `C:\Windows`。
 
