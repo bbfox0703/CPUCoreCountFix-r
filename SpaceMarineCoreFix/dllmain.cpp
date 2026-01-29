@@ -46,28 +46,15 @@ FARPROC WINAPI GetProcAddressDetour(HMODULE hModule, LPCSTR lpProcName)
 		return RealGetProcAddress(hModule, lpProcName);
 }
 
-// Export function to impersonate DirectInput8.dll
-#ifdef _WIN64
-#define ORIGINAL_DLL_PATH_64BIT_SYSTEM "C:\\Windows\\System32\\DINPUT8.dll"
-#else
-#define ORIGINAL_DLL_PATH_64BIT_SYSTEM "C:\\Windows\\SysWOW64\\DINPUT8.dll"
-#define ORIGINAL_DLL_PATH_32BIT_SYSTEM "C:\\Windows\\System32\\DINPUT8.dll"
-
-static BOOL Is64BitOS()
+// Build the path to the original DINPUT8.dll based on the Windows directory
+static BOOL GetOriginalDllPath(TCHAR* path, DWORD pathSize)
 {
-	using IsWow64ProcessFunctionType = BOOL(WINAPI*)(HANDLE, PBOOL);
-	const auto isWow64Process = reinterpret_cast<IsWow64ProcessFunctionType>(
-		RealGetProcAddress(GetModuleHandle(TEXT("kernel32")), "IsWow64Process"));
-
-	BOOL is64Bit = FALSE;
-	if (isWow64Process != NULL)
-		isWow64Process(GetCurrentProcess(), &is64Bit);
-
-	return is64Bit;
+	UINT len = GetSystemDirectory(path, pathSize);
+	if (len == 0 || len + 13 >= pathSize) // 13 = length of "\\DINPUT8.dll"
+		return FALSE;
+	lstrcat(path, TEXT("\\DINPUT8.dll"));
+	return TRUE;
 }
-
-static const BOOL IS_64BIT_OS = Is64BitOS();
-#endif
 
 #include "Unknwn.h"
 
@@ -83,13 +70,9 @@ extern "C" HRESULT WINAPI DirectInput8Create(HINSTANCE hinst,
 {
 	if (!moduleHandle)
 	{
-		moduleHandle = LoadLibrary(
-#ifdef _WIN64
-			TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM)
-#else
-			IS_64BIT_OS ? TEXT(ORIGINAL_DLL_PATH_64BIT_SYSTEM) : TEXT(ORIGINAL_DLL_PATH_32BIT_SYSTEM)
-#endif
-		);
+		TCHAR dllPath[MAX_PATH];
+		if (GetOriginalDllPath(dllPath, MAX_PATH))
+			moduleHandle = LoadLibrary(dllPath);
 	}
 
 	if (!moduleHandle)
