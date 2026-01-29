@@ -27,6 +27,9 @@ Child of Light：16 threads
 | 💾 記憶體管理        | 加入 `FreeLibrary(moduleHandle)` 清理                 | 修正 `LoadLibrary` 所載入之原始 `DINPUT8.dll` 在 DLL 卸載時未釋放的資源洩漏問題。                                          |
 | 🔁 Detours Hook | 新增 `DetourDetach`                                 | 在 `DLL_PROCESS_DETACH` 階段解除掛鉤，防止殘留 hook 導致未定行為或遊戲關閉時Crash。                                             |
 | 🔄 結構調整         | 分離 `Init()` 與 `Cleanup()`                         | 提高初始化與資源釋放流程的可讀性與可維護性。                                                                              |
+| 🛡️ 執行緒安全       | `DirectInput8Create` 使用 `InterlockedCompareExchangePointer` | 修正多執行緒同時首次呼叫時可能重複 `LoadLibrary` 導致 handle leak 的 race condition。                                    |
+| 🐛 Crash 防護     | `GetProcAddressDetour` 加入 ordinal 檢查               | 當 `lpProcName` 為 ordinal（`HIWORD == 0`）時跳過字串比較，避免讀取非法記憶體位址導致 crash。                                  |
+| 📂 路徑偵測         | 改用 `GetSystemDirectory` 取得系統目錄                     | 移除寫死的 `C:\Windows` 路徑，支援非標準 Windows 安裝位置。                                                           |
 
 ---
 

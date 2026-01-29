@@ -37,13 +37,16 @@ FARPROC WINAPI GetProcAddressDetour(HMODULE hModule, LPCSTR lpProcName)
 {
 	using namespace std::literals;
 
-	// Check if one of our detoured functions is being requested dynamically
-	if ("GetSystemInfo"sv == lpProcName)
-		return reinterpret_cast<FARPROC>(&GetSystemInfoDetour);
-	else if ("GetLogicalProcessorInformation"sv == lpProcName)
-		return reinterpret_cast<FARPROC>(&GetLogicalProcessorInformationDetour);
-	else
-		return RealGetProcAddress(hModule, lpProcName);
+	// lpProcName can be an ordinal (HIWORD == 0), skip string comparison in that case
+	if (reinterpret_cast<ULONG_PTR>(lpProcName) > 0xFFFF)
+	{
+		if ("GetSystemInfo"sv == lpProcName)
+			return reinterpret_cast<FARPROC>(&GetSystemInfoDetour);
+		else if ("GetLogicalProcessorInformation"sv == lpProcName)
+			return reinterpret_cast<FARPROC>(&GetLogicalProcessorInformationDetour);
+	}
+
+	return RealGetProcAddress(hModule, lpProcName);
 }
 
 // Build the path to the original DINPUT8.dll based on the Windows directory
@@ -72,7 +75,17 @@ extern "C" HRESULT WINAPI DirectInput8Create(HINSTANCE hinst,
 	{
 		TCHAR dllPath[MAX_PATH];
 		if (GetOriginalDllPath(dllPath, MAX_PATH))
-			moduleHandle = LoadLibrary(dllPath);
+		{
+			HMODULE h = LoadLibrary(dllPath);
+			if (h)
+			{
+				// If another thread loaded first, free our duplicate handle
+				HMODULE expected = NULL;
+				if (InterlockedCompareExchangePointer(
+						reinterpret_cast<PVOID*>(&moduleHandle), h, expected) != expected)
+					FreeLibrary(h);
+			}
+		}
 	}
 
 	if (!moduleHandle)
